@@ -2,37 +2,44 @@ modules {
   module {
     name = "ipmi"
     language = "python"
-  }
 
-  # If you change this entry make sure you put it under name_match section
-  param metric_prefix {
-    value = "ipmi"
-  }
+    # If you change this entry make sure you put it under name_match section
+    param metric_prefix {
+      value = "ipmi"
+    }
 
-  # IP of rhe IPMI
-  param ipmi_ip {
-    value = "10.1.2.3"
-  }
-  
-  param username {
-    value = "admin"
-  }
-  
-  param password {
-    value = "secret"
-  }
+    # Path to timeout binary
+    param timeout_bin {
+      value = "/usr/bin/timeout"
+    }
 
-  # Location of timeout binary
-  param timeout_bin {
-    value = "/usr/bin/timeout"
-  }
-  
-  # Location of ipmitool binary
-  param timeout_bin {
-    value = "/usr/bin/ipmitool"
-  }
-  
+    # Path to ipmitool binary
+    param ipmitool_bin {
+      value = "/usr/bin/ipmitool"
+    }
 
+    # IP/hostname for IPMI LAN interface
+    # Remove to query the local IPMI interface
+#    param ipmi_ip {
+#      value = "10.1.2.3"
+#    }
+
+    # Username for IPMI LAN interface
+    param username {
+      value = "ADMIN"
+    }
+
+    # Password for IPMI LAN interface
+    param password {
+      value = "secret"
+    }
+
+    # User to sudo as. Leave unset to not use sudo. Probably required if you
+    # wish to query the local IPMI interface
+    param sudo {
+      value = 'root'
+    }
+  }
 }
 
 collection_group {
@@ -40,8 +47,7 @@ collection_group {
   time_threshold = 90
 
   metric {
-      name_match = "ipmi_(.+)"
-      value_threshold = 1.0
+    name_match = "ipmi_(.+)"
+    value_threshold = 1.0
   }
-
 }

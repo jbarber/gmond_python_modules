@@ -4,7 +4,9 @@ import time
 import copy
 import string
 import subprocess
+import pwd
 
+PARAMS = {}
 METRICS = {
     'time' : 0,
     'data' : {}
@@ -12,22 +14,53 @@ METRICS = {
 
 METRICS_CACHE_MAX = 5
 
-stats_pos = {} 
+def validate_params(params):
+    '''Validate parameters'''
 
-def get_metrics():
+    if 'timeout_bin' not in params:
+        raise Exception("Missing timeout_bin parameter (path to timeout binary)")
+
+    if 'ipmitool_bin' not in params:
+        raise Exception("Missing ipmitool_bin parameter (path to ipmitool binary)")
+
+    if 'ipmi_ip' in params:
+        if not set(['username', 'password']).issubset(set(params)):
+            raise Exception("Missing IPMI LAN 'username' and 'password' parameters")
+
+    if 'sudo' in params:
+        try:
+            pw = pwd.getpwnam(params['sudo'])
+        except Exception:
+            raise Exception("sudo username '%s' not known on the system" % params['sudo'])
+
+def create_cmd(params):
+    '''Construct the command to get the IPMI data'''
+    command = []
+
+    if 'timeout_bin' in params:
+        command.extend([ params['timeout_bin'], '3' ])
+
+    if 'sudo' in params:
+        command.extend([ 'sudo', '-u', params['sudo'] ])
+
+    command.append(params['ipmitool_bin'])
+
+    if 'ipmi_ip' in params:
+        command.extend(['-H', params['ipmi_ip'], "-U" , params['username'], '-P', params['password'] ])
+
+    command.append('sensor')
+    return command
+
+def get_metrics(params):
     """Return all metrics"""
-
     global METRICS
 
+    new_metrics = {}
+    units = {}
+    command = create_cmd(params)
+
     if (time.time() - METRICS['time']) > METRICS_CACHE_MAX:
-
-	new_metrics = {}
-	units = {}
-
-	command = [ params['timeout_bin'] , "3", params['ipmitool_bin'] , "-H", params['ipmi_ip'] , "-U" , params['username'] , '-P', params['password'] , 'sensor']	
-
-        p = subprocess.Popen(command,
-                             stdout=subprocess.PIPE).communicate()[0][:-1]
+        p = subprocess.Popen(command, stdout=subprocess.PIPE).communicate()[0][:-1]
 
         for i, v in enumerate(p.split("\n")):
             data = v.split("|")
@@ -47,33 +80,27 @@ def get_metrics():
 
                 new_metrics[metric_name] = metric_value
                 units[metric_name] = data[2].strip().replace("degrees C", "C")
-		
             except ValueError:
                 continue
             except IndexError:
                 continue
-		
-	METRICS = {
-            'time': time.time(),
-            'data': new_metrics,
-            'units': units
+
+        METRICS = {
+            'time':  time.time(),
+            'data':  new_metrics,
+            'units': units,
         }
-
-    return [METRICS]
-
+        
+    return METRICS
 
 def get_value(name):
     """Return a value for the requested metric"""
 
     try:
-
-	metrics = get_metrics()[0]
-
-	prefix_length = len(params['metric_prefix']) + 1
-	name = name[prefix_length:] # remove prefix from name
-
-	result = metrics['data'][name]
-
+        metrics = get_metrics(PARAMS)
+        prefix_length = len(PARAMS['metric_prefix']) + 1
+        name = name[prefix_length:] # remove prefix from name
+        result = metrics['data'][name]
     except Exception:
         result = 0
 
@@ -86,10 +113,7 @@ def create_desc(skel, prop):
     return d
 
 def metric_init(params):
-    global descriptors, metric_map, Desc_Skel
-
     descriptors = []
-
     Desc_Skel = {
         'name'        : 'XXX',
         'call_back'   : get_value,
@@ -102,15 +126,19 @@ def metric_init(params):
         'groups'      : 'XXX',
         }
 
-    metrics = get_metrics()[0]
-    
-    for item in metrics['data']:
-	descriptors.append(create_desc(Desc_Skel, {
-		"name"       	: params['metric_prefix'] + "_" + item,
-		'groups'	: params['metric_prefix'],
-		'units'		: metrics['units'][item]
-		}))
+    for key in params:
+        PARAMS[key] = params[key]
 
+    validate_params(PARAMS)
+
+    metrics = get_metrics(PARAMS)
+
+    for item in metrics['data']:
+        descriptors.append(create_desc(Desc_Skel, {
+            'name'   : params['metric_prefix'] + "_" + item,
+            'groups' : params['metric_prefix'],
+            'units'  : metrics['units'][item]
+            }))
 
     return descriptors
 
@@ -120,14 +148,21 @@ def metric_cleanup():
 
 #This code is for debugging and unit testing
 if __name__ == '__main__':
-    
     params = {
-        "metric_prefix" : "ipmi",
-	"ipmi_ip" : "10.1.2.3",
-	"username"  : "ADMIN",
-	"password"  : "secret"
-	}
+        "metric_prefix": "ipmi",
+        "username":      "ADMIN",
+        "password":      "secret",
+        "timeout_bin":   "/usr/bin/timeout",
+        "ipmitool_bin":  "/usr/bin/ipmitool",
+        "sudo":          "root",
+    }
     descriptors = metric_init(params)
+
+    # Test parameter validation
+    validate_params(params)
+
+    # Show how we're going to get the results
+    print(" ".join(create_cmd(params)))
 
     while True:
         for d in descriptors:
